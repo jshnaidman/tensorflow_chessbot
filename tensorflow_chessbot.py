@@ -40,32 +40,90 @@
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1' # Ignore Tensorflow INFO debug messages
-import tensorflow as tf
 import numpy as np
+from PIL import ImageGrab
+from playsound import playsound
+import pyperclip
+import re
+temp_img_path = "C:\\tmp\\temp.png"
+root_path = "C:\\Users\\jacob\\chess\\tensorflow_chessbot"
+notif_path = "C:\\Users\\jacob\\chess\\light_button.wav"
+fen_pattern = re.compile(r'^\s*([prnbqkPRNBQK12345678]{1,8}(?:\/[prnbqkPRNBQK12345678]{1,8}){7})\s+(w|b)\s+([KQkqA-Ha-h]{1,4}|\-)\s+(?:(?:([a-h][36]|\-)\s+(\d{1,3})\s+(\d{1,4}))|(?:0\s+0))\s*$')
 
 from helper_functions import shortenFEN, unflipFEN
 import helper_image_loading
 import chessboard_finder
 
+import importlib
+
+
+def lazy_import(importer_name, to_import):
+    """Return the importing module and a callable for lazy importing.
+
+    The module named by importer_name represents the module performing the
+    import to help facilitate resolving relative imports.
+
+    to_import is an iterable of the modules to be potentially imported (absolute
+    or relative). The `as` form of importing is also supported,
+    e.g. `pkg.mod as spam`.
+
+    This function returns a tuple of two items. The first is the importer
+    module for easy reference within itself. The second item is a callable to be
+    set to `__getattr__`.
+    """
+    module = importlib.import_module(importer_name)
+    import_mapping = {}
+    for name in to_import:
+        importing, _, binding = name.partition(' as ')
+        if not binding:
+            _, _, binding = importing.rpartition('.')
+        import_mapping[binding] = importing
+
+    def __getattr__(name):
+        if name not in import_mapping:
+            message = f'module {importer_name!r} has no attribute {name!r}'
+            raise AttributeError(message)
+        importing = import_mapping[name]
+        # imortlib.import_module() implicitly sets submodules on this module as
+        # appropriate for direct imports.
+        imported = importlib.import_module(importing,
+                                           module.__spec__.parent)
+        setattr(module, name, imported)
+        return imported
+
+    return module, __getattr__
+
+mod, __getattr__ = lazy_import(__name__, {'tensorflow'})
+
+def play_notif():
+  playsound(notif_path)
+
+def flip_fen(s):
+  fen = s.split(' ')
+  fen[0] = shortenFEN(unflipFEN(fen[0]))
+  s = ' '.join(fen)
+  pyperclip.copy(s)
+  play_notif()
+
 def load_graph(frozen_graph_filepath):
     # Load and parse the protobuf file to retrieve the unserialized graph_def.
-    with tf.io.gfile.GFile(frozen_graph_filepath, "rb") as f:
-        graph_def = tf.compat.v1.GraphDef()
+    with mod.tf.io.gfile.GFile(frozen_graph_filepath, "rb") as f:
+        graph_def = mod.tf.compat.v1.GraphDef()
         graph_def.ParseFromString(f.read())
 
     # Import graph def and return.
-    with tf.Graph().as_default() as graph:
+    with mod.tf.Graph().as_default() as graph:
         # Prefix every op/nodes in the graph.
-        tf.import_graph_def(graph_def, name="tcb")
+        mod.tf.import_graph_def(graph_def, name="tcb")
     return graph
 
 class ChessboardPredictor(object):
   """ChessboardPredictor using saved model"""
-  def __init__(self, frozen_graph_path='saved_models/frozen_graph.pb'):
+  def __init__(self, frozen_graph_path= root_path + '\\saved_models\\frozen_graph.pb'):
     # Restore model using a frozen graph.
     print("\t Loading model '%s'" % frozen_graph_path)
     graph = load_graph(frozen_graph_path)
-    self.sess = tf.compat.v1.Session(graph=graph)
+    self.sess = mod.tf.compat.v1.Session(graph=graph)
 
     # Connect input/output pipes to model.
     self.x = graph.get_tensor_by_name('tcb/Input:0')
@@ -147,11 +205,24 @@ class ChessboardPredictor(object):
 # MAIN CLI
 
 def main(args):
+
+  if (args.unflip):
+    # if there's FEN already on the clipboard, we just flip it and exit.
+    # useful if we want to keybind FEN flip in case pasted FEN is flipped, and we don't want to wait for script to import tensorflow.
+    s = pyperclip.paste()
+    if (fen_pattern.search(s)):
+      flip_fen(s)
+      exit()
+
   # Load image from filepath or URL
   if args.filepath:
     # Load image from file
     img = helper_image_loading.loadImageFromPath(args.filepath)
     args.url = None # Using filepath.
+  elif args.paste:
+    im = ImageGrab.grabclipboard()
+    im.save(temp_img_path,'PNG')
+    img = helper_image_loading.loadImageFromPath(temp_img_path)
   else:
     img, args.url = helper_image_loading.loadImageFromURL(args.url)
 
@@ -197,6 +268,9 @@ def main(args):
   active = args.active
   print("---\nPredicted FEN:\n%s %s - - 0 1" % (short_fen, active))
   print("Final Certainty: %.1f%%" % (certainty*100))
+  pyperclip.copy("%s %s - - 0 1" % (short_fen, active))
+  play_notif()
+        
 
 if __name__ == '__main__':
   np.set_printoptions(suppress=True, precision=3)
@@ -205,6 +279,7 @@ if __name__ == '__main__':
   parser.add_argument('--url', default='http://imgur.com/u4zF5Hj.png', help='URL of image (ex. http://imgur.com/u4zF5Hj.png)')
   parser.add_argument('--filepath', help='filepath to image (ex. u4zF5Hj.png)')
   parser.add_argument('--unflip', default=False, action='store_true', help='revert the image of a flipped chessboard')
+  parser.add_argument('--paste', default=False, action='store_true', help="Take image from clipboard")
   parser.add_argument('--active', default='w')
   args = parser.parse_args()
   main(args)

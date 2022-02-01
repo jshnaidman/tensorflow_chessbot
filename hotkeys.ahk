@@ -1,0 +1,4 @@
+#+w::Run C:\Users\jacob\AppData\Local\Programs\Python\Python39\pythonw.exe C:\Users\jacob\chess\tensorflow_chessbot\tensorflow_chessbot.py --paste
+#+d::Run C:\Users\jacob\AppData\Local\Programs\Python\Python39\pythonw.exe C:\Users\jacob\chess\tensorflow_chessbot\tensorflow_chessbot.py --paste --active b
+#^+w::Run C:\Users\jacob\AppData\Local\Programs\Python\Python39\pythonw.exe C:\Users\jacob\chess\tensorflow_chessbot\tensorflow_chessbot.py --paste --unflip
+#^+d::Run C:\Users\jacob\AppData\Local\Programs\Python\Python39\pythonw.exe C:\Users\jacob\chess\tensorflow_chessbot\tensorflow_chessbot.py --paste --unflip --active b 
